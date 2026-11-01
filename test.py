@@ -1,1 +1,0 @@
-print("My Stock Market Prediction Project is Working!")

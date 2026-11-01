@@ -1,0 +1,67 @@
+@import '@fontsource-variable/schibsted-grotesk';
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+
+  --color-paper: #eef2f5;      /* page */
+  --color-sheet: #fbfcfd;      /* raised surfaces */
+  --color-ink: #13213a;        /* primary text */
+  --color-ink-2: #4a5872;      /* secondary text */
+  --color-ink-3: #8592a8;      /* tertiary / hints */
+  --color-rule: #d9e0e8;       /* hairlines */
+  --color-grid: #e6ebf0;
+  --color-up: #0b7d62;
+  --color-up-soft: #dcf1ea;
+  --color-down: #b8382f;
+  --color-down-soft: #f7e1de;
+  --color-hold: #8a6a12;
+  --color-hold-soft: #f4ecd2;
+  --color-why: #4b3fd6;        /* reserved for the model's explanation */
+  --color-why-soft: #e7e5fb;
+}
+
+html {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.num {
+  font-variant-numeric: lining-nums;
+}
+/* fixed-width digits only where columns must line up; this face also widens punctuation under tnum */
+.tab {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-why);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* price tick flash when a live quote arrives */
+@keyframes tick-up { from { background: var(--color-up-soft); } to { background: transparent; } }
+@keyframes tick-down { from { background: var(--color-down-soft); } to { background: transparent; } }
+.tick-up { animation: tick-up 1.2s ease-out; }
+.tick-down { animation: tick-down 1.2s ease-out; }
+
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.live-dot { animation: live-pulse 2s ease-in-out infinite; }
+
+/* the waterfall draws itself once per symbol: the page's one orchestrated moment */
+@keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.bar-grow { transform-origin: left center; animation: grow 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+::selection { background: var(--color-why-soft); }
