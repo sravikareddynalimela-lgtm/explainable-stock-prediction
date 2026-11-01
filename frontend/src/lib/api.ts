@@ -1,3 +1,5 @@
+import { supabase } from './supabase'
+
 export const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 
 export type Quote = {
@@ -117,7 +119,7 @@ export type ModelInfo = {
 
 export type NewsItem = { title: string; url: string; publisher: string; publishedAt: string | null; summary: string; thumbnail: string | null }
 export type SearchHit = { symbol: string; name: string; exchange: string; type: string }
-export type Health = { status: string; dataSource: string; model: ModelStatus; trainedAt: string | null }
+export type Health = { status: string; dataSource: string; authEnabled: boolean; model: ModelStatus; trainedAt: string | null }
 
 export class ApiError extends Error {
   status: number
@@ -127,8 +129,19 @@ export class ApiError extends Error {
   }
 }
 
+export async function accessToken(): Promise<string | null> {
+  if (!supabase) return null
+  const { data } = await supabase.auth.getSession()
+  return data.session?.access_token ?? null
+}
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`)
+  const token = await accessToken()
+  const res = await fetch(`${API_BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (res.status === 401 && supabase) {
+    // session is no longer valid on the server: sign out so the login page shows
+    await supabase.auth.signOut()
+  }
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -149,5 +162,8 @@ export const api = {
   news: (symbol: string) => get<NewsItem[]>(`/api/news/${encodeURIComponent(symbol)}`),
   search: (q: string) => get<SearchHit[]>(`/api/search?q=${encodeURIComponent(q)}`),
   model: () => get<ModelInfo>('/api/model'),
-  streamUrl: (symbols: string[]) => `${API_BASE}/api/stream?symbols=${encodeURIComponent(symbols.join(','))}`,
+  markets: () => get<Quote[]>('/api/public/markets'),
+  // EventSource can't send headers, so the token rides in the query string.
+  streamUrl: (symbols: string[], token: string | null) =>
+    `${API_BASE}/api/stream?symbols=${encodeURIComponent(symbols.join(','))}${token ? `&token=${encodeURIComponent(token)}` : ''}`,
 }

@@ -1,101 +1,149 @@
 # Clearview: explainable stock signals
 
-Live stock prices with a next-day direction prediction and a plain-English explanation of *why* the model made it.
+A live trading-terminal dashboard for NSE and US stocks, with user accounts, a next-day direction prediction, and a plain-English explanation of *why* the model made it.
 
-A rebuild of the original Streamlit project (`explainable-stock-prediction`) on a new stack:
+| Layer | Tech |
+|---|---|
+| Frontend | React 19 + TypeScript + Vite, Tailwind CSS v4, TradingView Lightweight Charts, TanStack Query, React Router |
+| Accounts | **Supabase Auth** (email + password, email confirmation, password reset) and a per-user watchlist table with row-level security |
+| API | FastAPI: REST endpoints + Server-Sent Events stream for live quotes; every data endpoint checks the user's Supabase token |
+| Model | LightGBM, 20 scale-free features, trained across 30 US and Indian stocks, walk-forward tested, exact TreeSHAP explanations |
+| Data | Live Yahoo Finance quotes (refreshed every 5s), intraday and daily history, indices, headlines, symbol search |
 
-| Layer | Before | Now |
-|---|---|---|
-| UI | Streamlit | **React 19 + TypeScript + Vite**, Tailwind CSS v4, TradingView Lightweight Charts, TanStack Query |
-| API | none (all in Streamlit) | **FastAPI** REST API + Server-Sent Events stream for live quotes |
-| Model | Random Forest, 6 raw features | **LightGBM**, 20 scale-free features, trained across 30 US and Indian stocks |
-| Evaluation | single train/test split | **walk-forward** testing (6 retrains over 3 years, only scored on unseen days) |
-| Explanations | `shap` package + matplotlib | LightGBM's built-in exact TreeSHAP, shown as an interactive waterfall |
-| Data | yfinance, fixed date range | **live** Yahoo Finance quotes (refreshed every 5s), intraday and daily history, headlines, symbol search |
+## Features
 
-## What's on the dashboard
+- **Sign up, log in, forgot/reset password.** The login page shows a live index board and ticker.
+- **Your own watchlist**, saved to your account and synced across devices; sort by gainers/losers, prices flash on every tick
+- **Ticker tape** with NIFTY 50, SENSEX, BANK NIFTY, S&P 500, NASDAQ, DOW, USD/INR, gold, crude and bitcoin, plus NSE/NYSE open/closed status
+- **Chart**: candles or line, 1D to 5Y, volume, SMA 20/50, Bollinger bands, OHLC readout under the crosshair; the last candle moves with the live price
+- **Signal** (BUY / SELL / HOLD) from a weighted vote: ML model 50%, technical agent 25%, trend agent 25%, with the risk agent scaling conviction down in volatile markets
+- **Why this call**: SHAP waterfall from the base rate to the final probability, one bar per feature
+- **Agents**: what each agent sees and why
+- **Backtest**: walk-forward accuracy vs. a naive baseline, ROC AUC, and an equity curve of "invest only when the model says up" vs buy & hold
+- **News**: latest headlines for the stock
 
-- **Live quote** for any Yahoo symbol (US stocks like `AAPL`, Indian stocks like `INFY.NS`), with market state and day range
-- **Candlestick chart** with volume, 20/50-day averages and Bollinger bands, from 1 day (5-minute bars) to 5 years; the last candle moves with the live price
-- **Signal** (Buy / Sell / Hold) from a weighted vote of four agents:
-  - **ML model** (50%): LightGBM probability that the next close is higher
-  - **Technical agent** (25%): RSI, MACD, Bollinger %B, volume confirmation
-  - **Trend agent** (25%): price vs 20/50/200-day averages, 20-day return
-  - **Risk agent**: doesn't vote; scales conviction down when volatility is high
-- **Why the model says up/down**: SHAP waterfall from the base rate to the final probability, one bar per feature
-- **Track record**: walk-forward accuracy vs. a naive baseline, ROC AUC, accuracy on the most confident 20% of calls, and an equity curve of "invest only when the model says up" vs buy & hold
-- **Watchlist** with live prices (saved in your browser) and **search** across every Yahoo-listed symbol
-- **Latest headlines** for the selected stock
+---
 
-## Run locally
+## 1. Set up Supabase (one time, about 5 minutes)
+
+1. Create a free project at <https://supabase.com/dashboard>.
+2. **Create the watchlist table.** Open **SQL Editor → New query**, paste everything in [`supabase/schema.sql`](supabase/schema.sql), and click **Run**.
+3. **Set the redirect URLs** so confirmation and reset emails link back to your app. Go to **Authentication → URL Configuration**:
+   - **Site URL**: `http://localhost:5173` (change this to your Vercel URL once deployed)
+   - **Redirect URLs**: add `http://localhost:5173/**` (and later `https://<your-app>.vercel.app/**`)
+4. **Copy your keys.** Under **Project Settings → API Keys** (or the **Connect** button), copy the **Project URL** and the **publishable key** (`sb_publishable_...`; older projects show an `anon` key, which also works).
+5. Optional: email confirmation is on by default. For quicker local testing you can turn it off under **Authentication → Sign In / Providers → Email → Confirm email**.
+
+Supabase's built-in email sender is rate-limited (a few emails per hour). That's fine for testing; for real users, add your own SMTP under **Authentication → Emails → SMTP Settings**.
+
+## 2. Run locally
 
 Requirements: Python 3.10+, Node 20+. On a Mac, LightGBM also needs OpenMP: `brew install libomp`.
+
+Create the two env files:
+
+```bash
+cd ~/developer/stocks_prediction
+cp frontend/.env.example frontend/.env.local
+cp backend/.env.example backend/.env
+```
+
+Then edit them:
+
+- `frontend/.env.local`: set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`
+- `backend/.env`: set `SUPABASE_URL` (same URL)
+
+Start everything:
 
 ```bash
 ./dev.sh
 ```
 
-That creates a virtualenv, installs everything, and starts the API on <http://localhost:8000> and the dashboard on <http://localhost:5173>.
+Open <http://localhost:5173>, create an account, and log in.
 
-On first start there's no trained model yet, so the backend downloads 10 years of daily data for the 30 training stocks and trains in the background (about 1–3 minutes). A progress bar shows at the top of the dashboard; live prices, charts and the rule-based agents work in the meantime.
+On the very first start the backend downloads 10 years of data for 30 stocks and trains the model in the background (a progress bar shows at the top). Prices, charts and the rule-based agents work right away; the prediction appears when training finishes.
 
-Or run the pieces yourself:
+<details>
+<summary>Run the two parts by hand instead</summary>
 
 ```bash
-# backend
+# terminal 1: backend
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python train.py                 # optional: train up front and print the evaluation
+python train.py                      # optional: train now and print the evaluation
 uvicorn app.main:app --reload --port 8000
 
-# frontend (second terminal)
+# terminal 2: frontend
 cd frontend
 npm install
 npm run dev
 ```
+</details>
 
-## Deploy online
+## 3. Deploy
 
-The backend goes on **Render** (free tier works), the frontend on **Vercel**.
+Backend on **Render**, frontend on **Vercel**, accounts on **Supabase**.
 
-1. **Train once locally and commit the model** so the server doesn't retrain after every restart (Render's free disk is wiped when the service sleeps):
+1. **Train once locally and commit the model**, so the server doesn't retrain after every restart:
    ```bash
    cd backend && python train.py
    git add models/model.joblib models/metrics.json && git commit -m "Add trained model"
    ```
-2. **Push this folder to GitHub.**
-3. **Backend on Render**: Dashboard → New → Blueprint → choose the repo. `render.yaml` sets everything up. Note the URL it gives you (e.g. `https://clearview-api.onrender.com`) and open `/api/health` to check it.
-4. **Frontend on Vercel**: New Project → import the repo → set **Root Directory** to `frontend` → add environment variable `VITE_API_URL` = your Render URL → Deploy.
-5. Back in Render, set `CORS_ORIGINS` to your Vercel URL (e.g. `https://clearview.vercel.app`) and redeploy.
+2. **Push to GitHub.**
+3. **Render** → New → Blueprint → choose the repo. Fill in `SUPABASE_URL`, `ADMIN_EMAILS` (your email) and, after step 4, `CORS_ORIGINS`. Check `https://<render-url>/api/health` shows `"authEnabled": true`.
+4. **Vercel** → New Project → import the repo → **Root Directory** `frontend` → environment variables:
+   - `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
+   - `VITE_API_URL` = your Render URL
+5. Back in Render, set `CORS_ORIGINS` to your Vercel URL. In Supabase, change **Site URL** to the Vercel URL and add it to **Redirect URLs**.
 
-Free Render services sleep after 15 minutes idle; the first request after that takes ~30–60 seconds.
+Free Render services sleep after 15 minutes idle; the first request after that takes 30–60 seconds.
 
-## Configuration (backend environment variables)
+## Configuration
+
+**Backend** (`backend/.env` locally, Render environment in production)
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DATA_SOURCE` | `yahoo` | `yahoo` for live data. `demo` uses simulated prices for offline development only; the UI shows a "Simulated data" badge. |
-| `CORS_ORIGINS` | `*` | Comma-separated allowed frontend origins |
+| `SUPABASE_URL` | – | Your Supabase project URL. Required for login checks. If empty, the API runs without auth (local experiments only). |
+| `SUPABASE_JWT_SECRET` | – | Only for older projects on the legacy JWT secret. New projects verify tokens with Supabase's public keys automatically. |
+| `ADMIN_EMAILS` | – | Emails allowed to call `POST /api/model/retrain` |
+| `DATA_SOURCE` | `yahoo` | `demo` uses simulated prices for offline development; the UI shows a "Simulated data" badge |
+| `CORS_ORIGINS` | `*` | Allowed frontend origins, comma-separated |
 | `STREAM_INTERVAL` | `5` | Seconds between live quote pushes |
 | `AUTO_TRAIN` | `1` | Train in the background on startup if no saved model exists |
 | `HISTORY_YEARS` | `10` | Years of daily history used for training |
-| `MODEL_DIR` | `backend/models` | Where the model and metrics are saved |
 
-Retrain any time with `python train.py` (or `python train.py AAPL MSFT ...` for a custom set) or `POST /api/model/retrain`.
+**Frontend** (`frontend/.env.local` locally, Vercel environment in production)
+
+| Variable | Meaning |
+|---|---|
+| `VITE_SUPABASE_URL` | Supabase project URL |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Publishable (or legacy anon) key. Safe to expose in the browser. |
+| `VITE_API_URL` | Backend URL. Leave empty locally. |
+
+Never put the Supabase **secret** / `service_role` key in the frontend.
+
+## How login works
+
+1. The browser signs up / logs in directly with Supabase (supabase-js) and gets a short-lived access token, refreshed automatically.
+2. Every API call sends that token as `Authorization: Bearer …` (the live-price stream sends it as `?token=` because browsers' EventSource can't set headers).
+3. FastAPI verifies the token's signature against Supabase's public keys (JWKS), its audience (`authenticated`), issuer and expiry. Invalid or expired tokens get a 401 and the app returns to the login page.
+4. The watchlist is read and written straight from the browser to Supabase; row-level security makes sure each user only ever sees their own rows.
 
 ## API
 
+`GET /api/health`, `GET /api/config` and `GET /api/public/markets` (index quotes for the login page) are public. Everything else needs a logged-in user:
+
 | Endpoint | Returns |
 |---|---|
-| `GET /api/health` | status, data source, model training state |
-| `GET /api/quote/{symbol}` / `GET /api/quotes?symbols=A,B` | live quotes |
-| `GET /api/stream?symbols=A,B` | Server-Sent Events: `quotes` event every few seconds |
-| `GET /api/history/{symbol}?range=1d\|5d\|1mo\|3mo\|6mo\|1y\|5y` | candles, SMA 20/50, Bollinger bands, RSI |
+| `GET /api/me` | the logged-in user |
+| `GET /api/quote/{symbol}` · `GET /api/quotes?symbols=A,B` | live quotes |
+| `GET /api/stream?symbols=A,B` | Server-Sent Events: a `quotes` event every few seconds |
+| `GET /api/history/{symbol}?range=1d…5y` | candles, SMA 20/50, Bollinger bands, RSI |
 | `GET /api/analysis/{symbol}` | prediction, SHAP contributions, agents, fused signal, track record |
-| `GET /api/news/{symbol}` | recent headlines |
-| `GET /api/search?q=` | symbol search |
-| `GET /api/model` | walk-forward metrics and feature importance |
+| `GET /api/news/{symbol}` · `GET /api/search?q=` | headlines, symbol search |
+| `GET /api/model` · `POST /api/model/retrain` | metrics; retrain (admins only) |
 
 Interactive docs: <http://localhost:8000/docs>.
 
@@ -104,36 +152,34 @@ Interactive docs: <http://localhost:8000/docs>.
 ```
 backend/
   app/
-    config.py      settings and training universe
+    auth.py        Supabase token verification
+    config.py      settings, training universe, index list
     data.py        Yahoo Finance data layer with caching (+ offline demo mode)
     features.py    indicators and the 20 model features
     agents.py      technical, trend, risk and model agents + fusion
     model.py       LightGBM training, walk-forward evaluation, SHAP
-    main.py        FastAPI routes and the live SSE stream
+    main.py        API routes and the live SSE stream
   train.py         command-line training
-  models/          saved model + metrics (created by training)
 frontend/
   src/
-    App.tsx        page layout and state
-    components/    PriceChart, Verdict, WhyWaterfall, Agents, TrackRecord, News, Watchlist, Search
-    lib/           API client, live-quote hook, formatters
-render.yaml        Render blueprint (backend)
-frontend/vercel.json  Vercel config (frontend)
-dev.sh             start both locally
+    main.tsx       routes and login guards
+    pages/         AuthPage (login, sign up, forgot, reset), Dashboard
+    components/    PriceChart, TickerTape, Watchlist, Verdict, WhyWaterfall, Agents, TrackRecord, News, Search, UserMenu
+    lib/           Supabase client, auth context, API client, live quotes, watchlist sync
+supabase/schema.sql   watchlist table + row-level security
+render.yaml           Render blueprint (backend)
+dev.sh                start both locally
 ```
 
 ## How the model works
 
 - **Target**: will the next session's close be higher than today's?
-- **Features**: all ratios or percentages (price vs moving averages, returns over 1/5/10/20 days, RSI, MACD as % of price, Bollinger %B and width, ATR %, volatility and its short/long ratio, volume vs average, distance from 52-week high, stochastic %K), so one model can learn from a $20 stock and a ₹3,000 stock together. The original model used raw SMA prices, which don't transfer between stocks.
-- **Evaluation**: the last 3 years are split into 6 periods. For each, the model is trained only on earlier data (with a one-day gap so labels can't leak) and scored on that period. Every accuracy figure in the UI comes from these out-of-sample predictions.
-- **Final model**: retrained on all data after evaluation.
-- **Explanations**: LightGBM computes exact SHAP values in log-odds; the dashboard converts them into percentage-point changes in P(up), from the base rate to the final prediction.
-
-During market hours, the latest daily bar is still forming, so the prediction updates as the day goes on.
+- **Features**: all ratios or percentages (price vs moving averages, 1/5/10/20-day returns, RSI, MACD as % of price, Bollinger %B and width, ATR %, volatility and its short/long ratio, volume vs average, distance from 52-week high, stochastic %K), so one model learns from a $20 stock and a ₹3,000 stock together.
+- **Evaluation**: the last 3 years are split into 6 periods; for each, the model is trained only on earlier data (with a one-day gap so labels can't leak) and scored on that period. Every accuracy figure in the UI comes from these out-of-sample predictions.
+- **Explanations**: LightGBM's exact TreeSHAP values, converted from log-odds into percentage-point changes in P(up).
 
 ## Honest expectations
 
-Next-day stock direction is close to random. Expect walk-forward accuracy a point or two above the naive baseline, and AUC slightly above 0.5. The dashboard shows these numbers next to the baseline so it never overstates what the model can do.
+Next-day stock direction is close to random. Expect walk-forward accuracy a point or two above the naive baseline and AUC slightly above 0.5. The dashboard always shows the baseline next to the model so it never overstates what it can do.
 
 This is an educational project. Nothing here is financial advice.

@@ -1,5 +1,5 @@
 # Render Blueprint for the FastAPI backend.
-# In Render: New + > Blueprint > pick this repo. Then set CORS_ORIGINS to your Vercel URL.
+# In Render: New + > Blueprint > pick this repo, then fill in the variables marked sync: false.
 services:
   - type: web
     name: clearview-api
@@ -16,5 +16,11 @@ services:
         value: yahoo
       - key: AUTO_TRAIN
         value: "1"
+      - key: SUPABASE_URL
+        sync: false # https://<project-ref>.supabase.co
+      - key: SUPABASE_JWT_SECRET
+        sync: false # only for legacy Supabase projects; leave blank otherwise
+      - key: ADMIN_EMAILS
+        sync: false
       - key: CORS_ORIGINS
-        sync: false # e.g. https://clearview.vercel.app
+        sync: false # your Vercel URL, e.g. https://clearview.vercel.app

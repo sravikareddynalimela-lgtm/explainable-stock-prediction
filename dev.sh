@@ -3,16 +3,24 @@
 set -e
 cd "$(dirname "$0")"
 
+if [ ! -f frontend/.env.local ]; then
+  echo "Missing frontend/.env.local. Copy frontend/.env.example and add your Supabase URL and publishable key."
+  exit 1
+fi
+if [ ! -f backend/.env ]; then
+  echo "Missing backend/.env. Copy backend/.env.example and add your SUPABASE_URL."
+  exit 1
+fi
+
 if [ ! -d backend/.venv ]; then
   echo "Creating Python virtual environment..."
   python3 -m venv backend/.venv
   backend/.venv/bin/pip install -q --upgrade pip
-  backend/.venv/bin/pip install -q -r backend/requirements.txt
 fi
-if [ ! -d frontend/node_modules ]; then
-  echo "Installing frontend packages..."
-  (cd frontend && npm install)
-fi
+echo "Checking Python packages..."
+backend/.venv/bin/pip install -q -r backend/requirements.txt
+echo "Checking frontend packages..."
+(cd frontend && npm install --silent)
 
 (cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000) &
 API_PID=$!

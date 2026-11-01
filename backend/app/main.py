@@ -9,12 +9,12 @@ from contextlib import asynccontextmanager
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import StreamingResponse
 
-from . import config, data, model
+from . import auth, config, data, model
 from .features import add_indicators
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -58,6 +58,7 @@ def health():
     return {
         "status": "ok",
         "dataSource": config.DATA_SOURCE,
+        "authEnabled": auth.AUTH_ENABLED,
         "model": model.status.as_dict(),
         "trainedAt": (model.metrics() or {}).get("trainedAt"),
         "time": int(time.time()),
@@ -67,10 +68,27 @@ def health():
 @app.get("/api/config")
 def get_config():
     return {"watchlist": config.DEFAULT_WATCHLIST, "universe": config.TRAINING_UNIVERSE,
-            "streamInterval": config.STREAM_INTERVAL, "dataSource": config.DATA_SOURCE}
+            "indices": [{"symbol": s, "name": n} for s, n in config.MARKET_INDICES],
+            "streamInterval": config.STREAM_INTERVAL, "dataSource": config.DATA_SOURCE, "authEnabled": auth.AUTH_ENABLED}
 
 
-@app.get("/api/search")
+# Everything on this router needs a logged-in Supabase user.
+api = APIRouter(prefix="/api", dependencies=[Depends(auth.current_user)])
+
+
+@app.get("/api/public/markets")
+def public_markets():
+    """Major indices, shown on the login page ticker. No login needed."""
+    return data.quotes([s for s, _ in config.MARKET_INDICES])
+
+
+@api.get("/me")
+def me(user: dict = Depends(auth.current_user)):
+    meta = user.get("user_metadata") or {}
+    return {"id": user.get("sub"), "email": user.get("email"), "name": meta.get("full_name") or meta.get("name")}
+
+
+@api.get("/search")
 def search(q: str = Query(..., min_length=1, max_length=40)):
     try:
         return data.search(q)
@@ -79,7 +97,7 @@ def search(q: str = Query(..., min_length=1, max_length=40)):
         return []
 
 
-@app.get("/api/quote/{symbol}")
+@api.get("/quote/{symbol}")
 def get_quote(symbol: str):
     s = _clean_symbol(symbol)
     try:
@@ -90,13 +108,13 @@ def get_quote(symbol: str):
         raise HTTPException(502, f"Data provider error: {e}")
 
 
-@app.get("/api/quotes")
+@api.get("/quotes")
 def get_quotes(symbols: str = Query(..., max_length=400)):
     syms = [_clean_symbol(s) for s in symbols.split(",") if s.strip()][:30]
     return data.quotes(syms)
 
 
-@app.get("/api/history/{symbol}")
+@api.get("/history/{symbol}")
 def get_history(symbol: str, range: str = "6mo"):  # noqa: A002
     s = _clean_symbol(symbol)
     if range not in data.RANGES:
@@ -134,7 +152,7 @@ def get_history(symbol: str, range: str = "6mo"):  # noqa: A002
     }
 
 
-@app.get("/api/analysis/{symbol}")
+@api.get("/analysis/{symbol}")
 def get_analysis(symbol: str):
     s = _clean_symbol(symbol)
     try:
@@ -150,7 +168,7 @@ def get_analysis(symbol: str):
     return json.loads(json.dumps(res, default=_nan_to_none))
 
 
-@app.get("/api/news/{symbol}")
+@api.get("/news/{symbol}")
 def get_news(symbol: str):
     s = _clean_symbol(symbol)
     try:
@@ -160,7 +178,7 @@ def get_news(symbol: str):
         return []
 
 
-@app.get("/api/model")
+@api.get("/model")
 def get_model():
     m = model.metrics()
     if not m:
@@ -170,13 +188,15 @@ def get_model():
     return {"status": model.status.as_dict(), "metrics": slim}
 
 
-@app.post("/api/model/retrain")
-def retrain():
+@api.post("/model/retrain")
+def retrain(user: dict = Depends(auth.current_user)):
+    if auth.AUTH_ENABLED and (user.get("email") or "").lower() not in config.ADMIN_EMAILS:
+        raise HTTPException(403, "Only admins can retrain the model.")
     model.train_in_background()
     return model.status.as_dict()
 
 
-@app.get("/api/stream")
+@api.get("/stream")
 async def stream(request: Request, symbols: str = Query(..., max_length=400)):
     """Server-Sent Events: pushes fresh quotes every STREAM_INTERVAL seconds."""
     syms = [_clean_symbol(s) for s in symbols.split(",") if s.strip()][:30]
@@ -196,3 +216,6 @@ async def stream(request: Request, symbols: str = Query(..., max_length=400)):
 
     headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
     return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
+
+
+app.include_router(api)

@@ -1,30 +1,36 @@
-@import '@fontsource-variable/schibsted-grotesk';
+@import '@fontsource-variable/inter-tight';
+@import '@fontsource-variable/jetbrains-mono';
 @import 'tailwindcss';
 
+/* Trading-terminal theme. Prices and figures are always set in the mono face. */
 @theme {
-  --font-sans: 'Schibsted Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Inter Tight Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace;
 
-  --color-paper: #eef2f5;      /* page */
-  --color-sheet: #fbfcfd;      /* raised surfaces */
-  --color-ink: #13213a;        /* primary text */
-  --color-ink-2: #4a5872;      /* secondary text */
-  --color-ink-3: #8592a8;      /* tertiary / hints */
-  --color-rule: #d9e0e8;       /* hairlines */
-  --color-grid: #e6ebf0;
-  --color-up: #0b7d62;
-  --color-up-soft: #dcf1ea;
-  --color-down: #b8382f;
-  --color-down-soft: #f7e1de;
-  --color-hold: #8a6a12;
-  --color-hold-soft: #f4ecd2;
-  --color-why: #4b3fd6;        /* reserved for the model's explanation */
-  --color-why-soft: #e7e5fb;
+  --color-void: #07090d;      /* behind everything */
+  --color-panel: #0e131a;     /* panels */
+  --color-raised: #151b24;    /* hovered rows, inputs */
+  --color-line: #1d2530;      /* panel borders */
+  --color-line-2: #2a3441;
+  --color-fg: #e8edf4;
+  --color-fg-2: #9aa6b6;
+  --color-fg-3: #5d6a7b;
+  --color-up: #00c27a;
+  --color-up-dim: #00c27a1f;
+  --color-down: #ff4d5e;
+  --color-down-dim: #ff4d5e1f;
+  --color-hold: #f2b13c;
+  --color-hold-dim: #f2b13c1f;
+  --color-brand: #3d8bff;     /* interactive */
+  --color-why: #a193ff;       /* the model's explanation */
+  --color-why-dim: #a193ff1f;
 }
 
 html {
-  background: var(--color-paper);
-  color: var(--color-ink);
+  background: var(--color-void);
+  color: var(--color-fg);
   font-family: var(--font-sans);
+  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -34,34 +40,49 @@ body {
 }
 
 .num {
-  font-variant-numeric: lining-nums;
-}
-/* fixed-width digits only where columns must line up; this face also widens punctuation under tnum */
-.tab {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-why);
+  outline: 2px solid var(--color-brand);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
-/* price tick flash when a live quote arrives */
-@keyframes tick-up { from { background: var(--color-up-soft); } to { background: transparent; } }
-@keyframes tick-down { from { background: var(--color-down-soft); } to { background: transparent; } }
-.tick-up { animation: tick-up 1.2s ease-out; }
-.tick-down { animation: tick-down 1.2s ease-out; }
+/* faint chart-grid behind the login hero */
+.grid-bg {
+  background-image:
+    linear-gradient(var(--color-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at 30% 40%, black 20%, transparent 75%);
+}
 
-@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.live-dot { animation: live-pulse 2s ease-in-out infinite; }
+/* live price flashes */
+@keyframes flash-up { from { background: #00c27a40; } to { background: transparent; } }
+@keyframes flash-down { from { background: #ff4d5e40; } to { background: transparent; } }
+.flash-up { animation: flash-up 1s ease-out; }
+.flash-down { animation: flash-down 1s ease-out; }
 
-/* the waterfall draws itself once per symbol: the page's one orchestrated moment */
+@keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.live-dot { animation: live-pulse 1.6s ease-in-out infinite; }
+
+/* ticker tape */
+@keyframes tape { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.tape { animation: tape 60s linear infinite; width: max-content; }
+.tape:hover { animation-play-state: paused; }
+
 @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-.bar-grow { transform-origin: left center; animation: grow 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.bar-grow { transform-origin: left center; animation: grow 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
 
-::selection { background: var(--color-why-soft); }
+::selection { background: #3d8bff55; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-line-2); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }

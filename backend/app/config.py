@@ -5,6 +5,13 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+try:  # load backend/.env for local development
+    from dotenv import load_dotenv
+
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    pass
 MODEL_DIR = Path(os.getenv("MODEL_DIR", BASE_DIR / "models"))
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -36,3 +43,20 @@ DEFAULT_WATCHLIST = [
 ]
 
 HISTORY_YEARS = int(os.getenv("HISTORY_YEARS", "10"))
+
+# Index / macro tickers for the ticker tape and the login page.
+MARKET_INDICES = [
+    ("^NSEI", "NIFTY 50"),
+    ("^BSESN", "SENSEX"),
+    ("^NSEBANK", "BANK NIFTY"),
+    ("^GSPC", "S&P 500"),
+    ("^IXIC", "NASDAQ"),
+    ("^DJI", "DOW"),
+    ("INR=X", "USD/INR"),
+    ("GC=F", "GOLD"),
+    ("CL=F", "CRUDE"),
+    ("BTC-USD", "BITCOIN"),
+]
+
+# Emails allowed to trigger POST /api/model/retrain (comma-separated).
+ADMIN_EMAILS = {e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()}
