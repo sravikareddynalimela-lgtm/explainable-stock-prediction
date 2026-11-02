@@ -2,35 +2,110 @@
 @import '@fontsource-variable/jetbrains-mono';
 @import 'tailwindcss';
 
-/* Trading-terminal theme. Prices and figures are always set in the mono face. */
-@theme {
+/*
+  Colours are CSS variables so the dashboard can switch theme at runtime.
+  :root                 → login / sign-up pages (dark, blue accent)
+  [data-theme="dark"]   → dashboard, dark terminal (amber accent)
+  [data-theme="light"]  → dashboard, light terminal
+*/
+@theme inline {
   --font-sans: 'Inter Tight Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, monospace;
 
-  --color-void: #07090d;      /* behind everything */
-  --color-panel: #0e131a;     /* panels */
-  --color-raised: #151b24;    /* hovered rows, inputs */
-  --color-line: #1d2530;      /* panel borders */
-  --color-line-2: #2a3441;
-  --color-fg: #e8edf4;
-  --color-fg-2: #9aa6b6;
-  --color-fg-3: #5d6a7b;
-  --color-up: #00c27a;
-  --color-up-dim: #00c27a1f;
-  --color-down: #ff4d5e;
-  --color-down-dim: #ff4d5e1f;
-  --color-hold: #f2b13c;
-  --color-hold-dim: #f2b13c1f;
-  --color-brand: #3d8bff;     /* interactive */
-  --color-why: #a193ff;       /* the model's explanation */
-  --color-why-dim: #a193ff1f;
+  --color-void: var(--t-void);
+  --color-panel: var(--t-panel);
+  --color-raised: var(--t-raised);
+  --color-line: var(--t-line);
+  --color-line-2: var(--t-line-2);
+  --color-fg: var(--t-fg);
+  --color-fg-2: var(--t-fg-2);
+  --color-fg-3: var(--t-fg-3);
+  --color-up: var(--t-up);
+  --color-up-dim: var(--t-up-dim);
+  --color-down: var(--t-down);
+  --color-down-dim: var(--t-down-dim);
+  --color-hold: var(--t-hold);
+  --color-hold-dim: var(--t-hold-dim);
+  --color-brand: var(--t-brand);
+  --color-brand-dim: var(--t-brand-dim);
+  --color-on-brand: var(--t-on-brand);
+  --color-why: var(--t-why);
+  --color-why-dim: var(--t-why-dim);
+}
+
+:root {
+  --t-void: #07090d;
+  --t-panel: #0e131a;
+  --t-raised: #151b24;
+  --t-line: #1d2530;
+  --t-line-2: #2a3441;
+  --t-fg: #e8edf4;
+  --t-fg-2: #9aa6b6;
+  --t-fg-3: #5d6a7b;
+  --t-up: #00c27a;
+  --t-up-dim: #00c27a1f;
+  --t-down: #ff4d5e;
+  --t-down-dim: #ff4d5e1f;
+  --t-hold: #f2b13c;
+  --t-hold-dim: #f2b13c1f;
+  --t-brand: #3d8bff;
+  --t-brand-dim: #3d8bff26;
+  --t-on-brand: #ffffff;
+  --t-why: #a193ff;
+  --t-why-dim: #a193ff1f;
+  color-scheme: dark;
+}
+
+[data-theme='dark'] {
+  --t-void: #090b0f;
+  --t-panel: #0f1217;
+  --t-raised: #171b22;
+  --t-line: #1f242d;
+  --t-line-2: #2c323d;
+  --t-fg: #e7eaf0;
+  --t-fg-2: #9aa3b2;
+  --t-fg-3: #5f6877;
+  --t-up: #19c37d;
+  --t-up-dim: #19c37d1c;
+  --t-down: #ff5468;
+  --t-down-dim: #ff54681c;
+  --t-hold: #e6c35c;
+  --t-hold-dim: #e6c35c1c;
+  --t-brand: #ff9a1f;
+  --t-brand-dim: #ff9a1f1f;
+  --t-on-brand: #1a1000;
+  --t-why: #a99bff;
+  --t-why-dim: #a99bff1c;
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --t-void: #eceef2;
+  --t-panel: #ffffff;
+  --t-raised: #f3f5f8;
+  --t-line: #e1e5eb;
+  --t-line-2: #cdd3dc;
+  --t-fg: #0f1724;
+  --t-fg-2: #4a5466;
+  --t-fg-3: #8691a3;
+  --t-up: #078a55;
+  --t-up-dim: #078a5514;
+  --t-down: #d32f43;
+  --t-down-dim: #d32f4314;
+  --t-hold: #a87a00;
+  --t-hold-dim: #a87a0014;
+  --t-brand: #c96400;
+  --t-brand-dim: #c9640014;
+  --t-on-brand: #ffffff;
+  --t-why: #5a48d6;
+  --t-why-dim: #5a48d614;
+  color-scheme: light;
 }
 
 html {
-  background: var(--color-void);
-  color: var(--color-fg);
+  background: var(--t-void);
+  color: var(--t-fg);
   font-family: var(--font-sans);
-  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -46,43 +121,44 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-brand);
+  outline: 2px solid var(--t-brand);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 2px;
 }
 
 /* faint chart-grid behind the login hero */
 .grid-bg {
   background-image:
-    linear-gradient(var(--color-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+    linear-gradient(var(--t-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--t-line) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: radial-gradient(ellipse at 30% 40%, black 20%, transparent 75%);
 }
 
 /* live price flashes */
-@keyframes flash-up { from { background: #00c27a40; } to { background: transparent; } }
-@keyframes flash-down { from { background: #ff4d5e40; } to { background: transparent; } }
+@keyframes flash-up { from { background: color-mix(in srgb, var(--t-up) 30%, transparent); } to { background: transparent; } }
+@keyframes flash-down { from { background: color-mix(in srgb, var(--t-down) 30%, transparent); } to { background: transparent; } }
 .flash-up { animation: flash-up 1s ease-out; }
 .flash-down { animation: flash-down 1s ease-out; }
 
 @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .live-dot { animation: live-pulse 1.6s ease-in-out infinite; }
 
-/* ticker tape */
 @keyframes tape { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-.tape { animation: tape 60s linear infinite; width: max-content; }
+.tape { animation: tape 70s linear infinite; width: max-content; }
 .tape:hover { animation-play-state: paused; }
 
 @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .bar-grow { transform-origin: left center; animation: grow 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.bar-grow-r { transform-origin: right center; animation: grow 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
 
-::selection { background: #3d8bff55; }
+html { scroll-behavior: smooth; }
 
+::selection { background: color-mix(in srgb, var(--t-brand) 35%, transparent); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: var(--color-line-2); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: var(--t-line-2); border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

@@ -18,19 +18,10 @@ export function WhyWaterfall({ a }: { a: Analysis }) {
   const d1 = hi + pad
   const x = (p: number) => ((p - d0) / (d1 - d0)) * 100
   const fmt = (p: number) => `${(p * 100).toFixed(1)}%`
-  const top = steps.find((s) => s.feature !== '_other')
 
   return (
-    <section aria-labelledby="why-h" className="p-4 sm:p-5">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <h2 id="why-h" className="text-base font-semibold">
-          Why the model says <span className={final >= 0.5 ? 'text-up' : 'text-down'}>{final >= 0.5 ? 'up' : 'down'}</span>
-        </h2>
-        <p className="text-sm text-fg-2">Each bar is one feature's SHAP contribution to the chance of a higher close.</p>
-      </div>
-      {top && <p className="mt-2 max-w-prose text-[15px] text-fg-2">{top.sentence} That's the single biggest factor for {a.symbol} today.</p>}
-
-      <div className="mt-5 grid grid-cols-[minmax(8rem,13rem)_1fr_4.5rem] items-center gap-x-4 gap-y-1.5 text-sm">
+    <section aria-label="SHAP waterfall" className="p-4">
+      <div className="grid grid-cols-[minmax(8rem,13rem)_1fr_4.5rem] items-center gap-x-4 gap-y-1.5 text-sm">
         <Row label="Typical day" sub="base rate" x0={x(d0)} x1={x(exp.baseProbability)} kind="base" value={fmt(exp.baseProbability)} mid={x(0.5)} delay={0} />
         {steps.map((s, i) => {
           const a0 = path[i]

@@ -3,6 +3,7 @@ import { ColorType, LineSeries, createChart } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
 import { api, type Analysis } from '../lib/api'
 import { pct } from '../lib/format'
+import { usePalette } from '../lib/theme'
 
 export function TrackRecord({ a }: { a: Analysis }) {
   const { data: info } = useQuery({ queryKey: ['model'], queryFn: api.model, staleTime: 5 * 60_000 })
@@ -16,9 +17,8 @@ export function TrackRecord({ a }: { a: Analysis }) {
   const edge = acc - base
 
   return (
-    <section aria-labelledby="track-h" className="p-4 sm:p-5">
-      <h2 id="track-h" className="text-base font-semibold">Has this model been right before?</h2>
-      <p className="mt-1 max-w-prose text-[15px] text-fg-2">
+    <section aria-label="Backtest" className="p-4">
+      <p className="max-w-prose text-sm text-fg-2">
         Tested walk-forward from {o.testStart} to {o.testEnd}: the model was retrained {o.folds} times and only ever scored on days it hadn't seen.
         {t ? ` Results below are for ${a.symbol}.` : ` ${a.symbol} isn't in the training set, so these are results across all ${m.universe.length} training stocks.`}
       </p>
@@ -84,26 +84,27 @@ function Stat({ label, value, hint }: { label: string; value: string; hint: stri
 }
 
 function Equity({ data }: { data: { date: string; strategy: number; buyHold: number }[] }) {
+  const C = usePalette()
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!box.current) return
     const c = createChart(box.current, {
       autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: '#5D6A7B', fontFamily: 'JetBrains Mono Variable, monospace', fontSize: 11, attributionLogo: false },
-      grid: { vertLines: { visible: false }, horzLines: { color: '#151B24' } },
+      layout: { background: { type: ColorType.Solid, color: 'transparent' }, textColor: C.text, fontFamily: 'JetBrains Mono Variable, monospace', fontSize: 11, attributionLogo: false },
+      grid: { vertLines: { visible: false }, horzLines: { color: C.grid } },
       rightPriceScale: { borderVisible: false },
-      timeScale: { borderColor: '#1D2530' },
+      timeScale: { borderColor: C.line },
       handleScroll: false,
       handleScale: false,
       localization: { priceFormatter: (p: number) => `${((p - 1) * 100).toFixed(0)}%` },
     })
-    const hold = c.addSeries(LineSeries, { color: '#5D6A7B', lineWidth: 2, priceLineVisible: false, lastValueVisible: false })
+    const hold = c.addSeries(LineSeries, { color: C.muted, lineWidth: 2, priceLineVisible: false, lastValueVisible: false })
     hold.setData(data.map((d) => ({ time: d.date, value: d.buyHold })))
-    const strat = c.addSeries(LineSeries, { color: '#A193FF', lineWidth: 2, priceLineVisible: false })
+    const strat = c.addSeries(LineSeries, { color: C.why, lineWidth: 2, priceLineVisible: false })
     strat.setData(data.map((d) => ({ time: d.date, value: d.strategy })))
     c.timeScale().fitContent()
     return () => c.remove()
-  }, [data])
+  }, [data, C])
   return (
     <figure>
       <figcaption className="flex gap-4 text-sm text-fg-2">

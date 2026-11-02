@@ -285,7 +285,17 @@ def predict_explain(feat_row: pd.DataFrame) -> dict:
             "display": "", "shap": float(rest), "impact": float(_sigmoid(logit) - before),
             "direction": "up" if rest > 0 else "down", "sentence": "",
         })
-    return {"pUp": p_up, "baseProbability": base_p, "contributions": steps}
+    all_feats = [
+        {
+            "feature": FEATURES[i], "label": FEATURE_LABELS[FEATURES[i]],
+            "value": float(X.iloc[0][FEATURES[i]]), "display": format_feature(FEATURES[i], float(X.iloc[0][FEATURES[i]])),
+            "shap": float(phi[i]),
+            # approx. change in P(up), in probability units, at the final prediction
+            "impact": float(phi[i] * p_up * (1 - p_up)),
+        }
+        for i in order
+    ]
+    return {"pUp": p_up, "baseProbability": base_p, "contributions": steps, "all": all_feats}
 
 
 def _sentence(f: str, v: float, s: float) -> str:
@@ -297,7 +307,7 @@ def _sentence(f: str, v: float, s: float) -> str:
 def analyse(symbol: str) -> dict:
     from . import agents
 
-    raw = data.daily_history(symbol, years=2)
+    raw = data.daily_history(symbol)  # full history: the Historical Agent looks for similar past days
     df = add_indicators(raw)
     feats = df.dropna(subset=FEATURES)
     if feats.empty:
@@ -305,14 +315,15 @@ def analyse(symbol: str) -> dict:
     last = feats.iloc[-1]
     hist = df.loc[: feats.index[-1]]
 
-    ag = [agents.technical_agent(last), agents.trend_agent(last), agents.risk_agent(hist)]
+    ag = [agents.technical_agent(last), agents.historical_agent(hist), agents.volatility_agent(hist)]
     out: dict = {"symbol": symbol.upper(), "asOf": feats.index[-1].strftime("%Y-%m-%d")}
 
     if ready():
         exp = predict_explain(feats.iloc[[-1]])
-        ag.insert(0, agents.model_agent(exp["pUp"], _metrics.get("baseRate", 0.5)))
+        ag.insert(0, agents.model_agent(exp["pUp"], _metrics.get("baseRate", 0.5), len(_metrics.get("universe", []))))
+        direction = "UP" if exp["pUp"] >= 0.5 else "DOWN"
         out["prediction"] = {
-            "direction": "UP" if exp["pUp"] >= 0.5 else "DOWN",
+            "direction": direction,
             "pUp": exp["pUp"],
             "confidence": max(exp["pUp"], 1 - exp["pUp"]),
             "highConviction": abs(exp["pUp"] - 0.5) >= _metrics["overall"]["highConviction"]["threshold"],
@@ -321,18 +332,27 @@ def analyse(symbol: str) -> dict:
         ps = _metrics["perSymbol"].get(symbol.upper())
         out["track"] = ps
         out["inUniverse"] = ps is not None
+        out["featureImportance"] = _metrics.get("featureImportance", [])
     else:
-        out["prediction"] = None
-        out["explanation"] = None
-        out["track"] = None
-        out["inUniverse"] = False
+        out.update(prediction=None, explanation=None, track=None, inUniverse=False, featureImportance=[])
 
     out["agents"] = ag
     out["fusion"] = agents.fuse(ag)
     out["indicators"] = {
         "rsi": float(last["rsi"]), "macd": float(last["macd"]), "macdSignal": float(last["macd_signal"]),
-        "sma20": float(last["sma20"]), "sma50": float(last["sma50"]),
+        "sma5": float(last["sma5"]), "sma20": float(last["sma20"]), "sma50": float(last["sma50"]),
         "sma200": None if pd.isna(last["sma200"]) else float(last["sma200"]),
-        "atr": float(last["atr"]), "close": float(last["Close"]),
+        "atr": float(last["atr"]), "volatility": float(last["vol_20"]), "close": float(last["Close"]),
     }
+    recent = hist.iloc[-30:][::-1]
+    out["recent"] = [
+        {
+            "date": idx.strftime("%Y-%m-%d"), "open": float(r.Open), "high": float(r.High), "low": float(r.Low),
+            "close": float(r.Close), "volume": float(r.Volume), "change": None if pd.isna(r.daily_return) else float(r.daily_return),
+            "rsi": None if pd.isna(r.rsi) else float(r.rsi), "sma5": None if pd.isna(r.sma5) else float(r.sma5),
+            "sma20": None if pd.isna(r.sma20) else float(r.sma20), "macd": float(r.macd),
+            "volatility": None if pd.isna(r.vol_20) else float(r.vol_20),
+        }
+        for idx, r in recent.iterrows()
+    ]
     return out

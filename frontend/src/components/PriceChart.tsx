@@ -15,17 +15,18 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { api, type Candle, type Quote } from '../lib/api'
 import { compact } from '../lib/format'
+import { usePalette } from '../lib/theme'
 
 const RANGES = [
   { id: '1d', label: '1D' }, { id: '5d', label: '5D' }, { id: '1mo', label: '1M' }, { id: '3mo', label: '3M' },
   { id: '6mo', label: '6M' }, { id: '1y', label: '1Y' }, { id: '5y', label: '5Y' },
 ]
 
-const C = { text: '#5D6A7B', grid: '#151B24', line: '#1D2530', up: '#00C27A', down: '#FF4D5E', sma20: '#3D8BFF', sma50: '#F2B13C', bb: '#5D6A7B', cross: '#9AA6B6' }
 
 type Kind = 'candles' | 'line'
 
 export function PriceChart({ symbol, quote }: { symbol: string; quote?: Quote }) {
+  const C = usePalette()
   const [range, setRange] = useState('6mo')
   const [kind, setKind] = useState<Kind>('candles')
   const [overlays, setOverlays] = useState({ sma: true, bb: false })
@@ -51,15 +52,15 @@ export function PriceChart({ symbol, quote }: { symbol: string; quote?: Quote })
       timeScale: { borderColor: C.line, timeVisible: data.intraday, secondsVisible: false, rightOffset: 5 },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: C.cross, width: 1, style: 3, labelBackgroundColor: '#2A3441' },
-        horzLine: { color: C.cross, width: 1, style: 3, labelBackgroundColor: '#2A3441' },
+        vertLine: { color: C.cross, width: 1, style: 3, labelBackgroundColor: C.crossLabel },
+        horzLine: { color: C.cross, width: 1, style: 3, labelBackgroundColor: C.crossLabel },
       },
     })
     const t = (x: number) => x as UTCTimestamp
 
     const vol = c.addSeries(HistogramSeries, { priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false })
     c.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-    vol.setData(data.candles.map((k) => ({ time: t(k.time), value: k.volume, color: k.close >= k.open ? '#00C27A40' : '#FF4D5E40' })))
+    vol.setData(data.candles.map((k) => ({ time: t(k.time), value: k.volume, color: k.close >= k.open ? `${C.up}55` : `${C.down}55` })))
 
     if (!data.intraday && overlays.bb) {
       for (const s of [data.bbUpper, data.bbLower]) {
@@ -109,7 +110,7 @@ export function PriceChart({ symbol, quote }: { symbol: string; quote?: Quote })
       main.current = null
       chartRef.current = null
     }
-  }, [data, overlays, kind])
+  }, [data, overlays, kind, C])
 
   // move the latest bar with the live price
   useEffect(() => {
@@ -134,7 +135,7 @@ export function PriceChart({ symbol, quote }: { symbol: string; quote?: Quote })
         {!data?.intraday && (
           <div className="ml-auto flex items-center gap-1 text-xs">
             <Chip on={overlays.sma} onClick={() => setOverlays((o) => ({ ...o, sma: !o.sma }))}>
-              <i className="h-0.5 w-2.5 bg-brand" />SMA 20<i className="ml-1 h-0.5 w-2.5 bg-hold" />SMA 50
+              <i className="h-0.5 w-2.5" style={{ background: C.sma20 }} />SMA 20<i className="ml-1 h-0.5 w-2.5" style={{ background: C.sma50 }} />SMA 50
             </Chip>
             <Chip on={overlays.bb} onClick={() => setOverlays((o) => ({ ...o, bb: !o.bb }))}>
               <i className="w-2.5 border-t border-dashed border-fg-3" />Bollinger
@@ -165,7 +166,7 @@ function Seg({ items, value, onChange, label }: { items: { id: string; label: st
     <div role="tablist" aria-label={label} className="flex gap-0.5">
       {items.map((r) => (
         <button key={r.id} role="tab" aria-selected={value === r.id} onClick={() => onChange(r.id)}
-          className={`rounded px-2 py-1 text-xs font-semibold transition-colors ${value === r.id ? 'bg-raised text-fg' : 'text-fg-3 hover:text-fg'}`}>
+          className={`rounded-sm px-2 py-1 text-xs font-semibold transition-colors ${value === r.id ? 'bg-raised text-fg' : 'text-fg-3 hover:text-fg'}`}>
           {r.label}
         </button>
       ))}

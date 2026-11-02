@@ -53,6 +53,19 @@ def _nan_to_none(x):
     return None if x is None or (isinstance(x, float) and (np.isnan(x) or np.isinf(x))) else x
 
 
+def _clean(o):
+    """Recursively replace NaN/inf (invalid in JSON) with None and numpy scalars with Python ones."""
+    if isinstance(o, dict):
+        return {k: _clean(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_clean(v) for v in o]
+    if isinstance(o, np.generic):
+        o = o.item()
+    if isinstance(o, float) and (np.isnan(o) or np.isinf(o)):
+        return None
+    return o
+
+
 @app.get("/api/health")
 def health():
     return {
@@ -123,7 +136,7 @@ def get_history(symbol: str, range: str = "6mo"):  # noqa: A002
     try:
         if interval == "1d":
             # compute indicators on a longer window so averages are populated from the first bar
-            full = add_indicators(data.daily_history(s, years=2))
+            full = add_indicators(data.daily_history(s))  # shares the cache with /analysis
             n = {"1mo": 22, "3mo": 64, "6mo": 127, "1y": 253}[range]
             df = full.iloc[-n:]
         else:
@@ -165,7 +178,7 @@ def get_analysis(symbol: str):
         log.exception("analysis failed")
         raise HTTPException(502, f"Analysis failed: {e}")
     res["modelStatus"] = model.status.as_dict()
-    return json.loads(json.dumps(res, default=_nan_to_none))
+    return _clean(res)
 
 
 @api.get("/news/{symbol}")

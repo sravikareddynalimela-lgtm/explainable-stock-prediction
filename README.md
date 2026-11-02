@@ -13,14 +13,17 @@ A live trading-terminal dashboard for NSE and US stocks, with user accounts, a n
 ## Features
 
 - **Sign up, log in, forgot/reset password.** The login page shows a live index board and ticker.
-- **Your own watchlist**, saved to your account and synced across devices; sort by gainers/losers, prices flash on every tick
-- **Ticker tape** with NIFTY 50, SENSEX, BANK NIFTY, S&P 500, NASDAQ, DOW, USD/INR, gold, crude and bitcoin, plus NSE/NYSE open/closed status
-- **Chart**: candles or line, 1D to 5Y, volume, SMA 20/50, Bollinger bands, OHLC readout under the crosshair; the last candle moves with the live price
-- **Signal** (BUY / SELL / HOLD) from a weighted vote: ML model 50%, technical agent 25%, trend agent 25%, with the risk agent scaling conviction down in volatile markets
-- **Why this call**: SHAP waterfall from the base rate to the final probability, one bar per feature
-- **Agents**: what each agent sees and why
-- **Backtest**: walk-forward accuracy vs. a naive baseline, ROC AUC, and an equity curve of "invest only when the model says up" vs buy & hold
-- **News**: latest headlines for the stock
+- **Pro-terminal dashboard with dark and light themes** (toggle top right; your choice is remembered). Press **1–6** to jump between sections.
+- **Your own watchlist**, saved to your account; sort by gainers/losers; prices flash on every tick
+- **Ticker tape and exchange clocks**: NIFTY 50, SENSEX, BANK NIFTY, S&P 500, NASDAQ, DOW, USD/INR, gold, crude, bitcoin; NSE and NYSE local time with open/closed status
+- **Overview**: live price with the latest stock information (open, high, low, previous close, volume, 52-week range) and a candle/line chart with SMA 20/50, Bollinger bands and an OHLC readout
+- **Prediction result**: UP/DOWN, model confidence, and a BUY/SELL/HOLD recommendation with its reason
+- **Multi-agent analysis**: ML model, Technical Agent (RSI, MACD, SMA 20, Bollinger, volume), **Historical Agent** (SMA 5 vs SMA 20, recent returns, and how this stock behaved after similar days in up to 10 years of history), and Volatility Agent (risk level, scales conviction)
+- **Agent fusion**: the original majority vote (UP votes, DOWN votes, fused direction) next to the weighted score that drives the recommendation
+- **Why did the model make this prediction?**: plain-English explanation, top 3 influential features, and SHAP contributions for all 20 features as bars, a waterfall or a table
+- **Feature importance** across all stocks, and a walk-forward **backtest**
+- **Recent stock data**: the last 30 sessions with RSI, SMA 5/20, MACD and volatility
+- **Latest headlines**
 
 ---
 

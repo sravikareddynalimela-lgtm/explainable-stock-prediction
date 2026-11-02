@@ -38,8 +38,19 @@ export type History = {
   rsi: Point[]
 }
 
+export type Analogs = {
+  matches: number
+  upRate: number
+  baseUpRate: number
+  avgNextReturn: number
+  years: number
+  lastMatch: string
+}
+
 export type Agent = {
-  id: 'model' | 'technical' | 'trend' | 'risk'
+  id: 'model' | 'technical' | 'historical' | 'volatility'
+  vote: 'UP' | 'DOWN' | 'HOLD' | null
+  analogs?: Analogs | null
   name: string
   score: number
   stance: string
@@ -76,7 +87,14 @@ export type Analysis = {
   symbol: string
   asOf: string
   prediction: { direction: 'UP' | 'DOWN'; pUp: number; confidence: number; highConviction: boolean } | null
-  explanation: { pUp: number; baseProbability: number; contributions: Contribution[] } | null
+  explanation: {
+    pUp: number
+    baseProbability: number
+    contributions: Contribution[]
+    all: { feature: string; label: string; value: number; display: string; shap: number; impact: number }[]
+  } | null
+  featureImportance: { feature: string; label: string; importance: number }[]
+  recent: RecentRow[]
   track: Track | null
   inUniverse: boolean
   agents: Agent[]
@@ -87,9 +105,29 @@ export type Analysis = {
     dampener: number
     agreement: string
     explanation: string
+    reason: string
+    votes: { agent: string; vote: 'UP' | 'DOWN' | 'HOLD' | null }[]
+    upVotes: number
+    downVotes: number
+    majority: 'UP' | 'DOWN' | 'HOLD'
   }
   indicators: Record<string, number | null>
   modelStatus: ModelStatus
+}
+
+export type RecentRow = {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  change: number | null
+  rsi: number | null
+  sma5: number | null
+  sma20: number | null
+  macd: number
+  volatility: number | null
 }
 
 export type ModelInfo = {

@@ -136,6 +136,50 @@ def _yahoo_quote(symbol: str) -> dict:
     }
 
 
+_STATE = {"REGULAR": "OPEN", "PRE": "PRE", "PREPRE": "PRE", "POST": "POST", "POSTPOST": "POST", "CLOSED": "CLOSED"}
+
+
+def _yahoo_quotes_batch(symbols: list[str]) -> list[dict]:
+    """All symbols in ONE request to Yahoo's v7 quote endpoint.
+
+    Cloud hosts (Render, etc.) get rate-limited quickly if we fire one request per
+    symbol every few seconds, so live quotes always go through this batch call.
+    """
+    from yfinance.data import YfData
+
+    res = YfData().get_raw_json(
+        "https://query1.finance.yahoo.com/v7/finance/quote",
+        params={"symbols": ",".join(symbols), "formatted": "false", "lang": "en-US", "region": "US"},
+        timeout=10,
+    )
+    out = []
+    for r in (res.get("quoteResponse") or {}).get("result") or []:
+        price = r.get("regularMarketPrice")
+        if price is None:
+            continue
+        prev = r.get("regularMarketPreviousClose") or price
+        out.append({
+            "symbol": r["symbol"].upper(),
+            "name": r.get("longName") or r.get("shortName") or r["symbol"],
+            "exchange": r.get("fullExchangeName") or r.get("exchange") or "",
+            "currency": r.get("currency") or "USD",
+            "price": float(price),
+            "previousClose": float(prev),
+            "change": float(r.get("regularMarketChange", price - prev)),
+            "changePct": float(r.get("regularMarketChangePercent", (price / prev - 1) * 100 if prev else 0)),
+            "open": float(r.get("regularMarketOpen") or price),
+            "dayHigh": float(r.get("regularMarketDayHigh") or price),
+            "dayLow": float(r.get("regularMarketDayLow") or price),
+            "volume": int(r.get("regularMarketVolume") or 0),
+            "fiftyTwoWeekHigh": r.get("fiftyTwoWeekHigh"),
+            "fiftyTwoWeekLow": r.get("fiftyTwoWeekLow"),
+            "marketState": _STATE.get(r.get("marketState", ""), "UNKNOWN"),
+            "time": int(r.get("regularMarketTime") or time.time()),
+            "source": "yahoo",
+        })
+    return out
+
+
 def _yahoo_search(q: str) -> list[dict]:
     res = _yf().Search(q, max_results=10, news_count=0, lists_count=0, raise_errors=False)
     out = []
@@ -287,13 +331,46 @@ def daily_history(symbol: str, years: int | None = None) -> pd.DataFrame:
 
 def quote(symbol: str) -> dict:
     symbol = symbol.upper()
-    return cached(f"quote:{symbol}", 4, lambda: _demo_quote(symbol) if is_demo() else _yahoo_quote(symbol))
+    got = quotes([symbol])
+    if not got:
+        raise SymbolNotFound(symbol)
+    return got[0]
 
 
 def quotes(symbols: list[str]) -> list[dict]:
+    symbols = list(dict.fromkeys(s.upper() for s in symbols))
+    if not is_demo():
+        # serve fresh cached quotes, fetch the rest in one batched request
+        now = time.time()
+        fresh, missing = {}, []
+        with _cache_lock:
+            for s in symbols:
+                hit = _cache.get(f"quote:{s}")
+                if hit and now - hit[0] < 4:
+                    fresh[s] = hit[1]
+                else:
+                    missing.append(s)
+        if missing:
+            try:
+                got = _yahoo_quotes_batch(missing)
+                with _cache_lock:
+                    for q in got:
+                        _cache[f"quote:{q['symbol']}"] = (now, q)
+                        fresh[q["symbol"]] = q
+            except Exception as e:  # noqa: BLE001
+                log.warning("batch quote failed (%s), falling back to per-symbol", e)
+        still = [s for s in symbols if s not in fresh]
+        if still:
+            for q in _per_symbol_quotes(still[:8]):  # cap the slow path
+                fresh[q["symbol"]] = q
+        return [fresh[s] for s in symbols if s in fresh]
+    return _per_symbol_quotes(symbols)
+
+
+def _per_symbol_quotes(symbols: list[str]) -> list[dict]:
     def safe(s):
         try:
-            return quote(s)
+            return cached(f"quote:{s}", 4, lambda: _demo_quote(s) if is_demo() else _yahoo_quote(s))
         except Exception as e:  # noqa: BLE001
             log.warning("quote failed for %s: %s", s, e)
             return None
