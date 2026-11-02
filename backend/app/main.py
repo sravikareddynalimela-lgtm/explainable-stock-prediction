@@ -23,6 +23,7 @@ log = logging.getLogger("api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    data.start_hub()
     if not model.load():
         if config.AUTO_TRAIN:
             log.info("No saved model found, training in the background")
@@ -123,7 +124,8 @@ def get_quote(symbol: str):
 
 @api.get("/quotes")
 def get_quotes(symbols: str = Query(..., max_length=400)):
-    syms = [_clean_symbol(s) for s in symbols.split(",") if s.strip()][:30]
+    syms = [_clean_symbol(s) for s in symbols.split(",") if s.strip()][:40]
+    data.watch(syms)
     return data.quotes(syms)
 
 
@@ -210,22 +212,45 @@ def retrain(user: dict = Depends(auth.current_user)):
 
 
 @api.get("/stream")
-async def stream(request: Request, symbols: str = Query(..., max_length=400)):
-    """Server-Sent Events: pushes fresh quotes every STREAM_INTERVAL seconds."""
-    syms = [_clean_symbol(s) for s in symbols.split(",") if s.strip()][:30]
+async def stream(request: Request, symbols: str = Query(..., max_length=600)):
+    """Server-Sent Events. Sends cached quotes immediately, then every ~2 s whenever they change.
+
+    The background quote hub (data.start_hub) does the fetching; this only reads the cache.
+    """
+    syms = [_clean_symbol(s) for s in symbols.split(",") if s.strip()][:40]
     loop = asyncio.get_running_loop()
+    data.watch(syms)
+
+    def event(qs):
+        return f"event: quotes\ndata: {json.dumps(_clean(qs))}\n\n"
 
     async def gen():
-        yield f"retry: 3000\n\n"
-        while True:
-            if await request.is_disconnected():
-                break
+        yield "retry: 3000\n\n"
+        sent = ""
+        first = data.cached_quotes(syms)
+        if first:
+            sent = json.dumps(_clean(first))
+            yield event(first)
+        missing = [s for s in syms if s not in {q["symbol"] for q in first}]
+        if missing:  # nothing cached yet for these: fetch once right away
             try:
-                qs = await loop.run_in_executor(None, data.quotes, syms)
-                yield f"event: quotes\ndata: {json.dumps(qs, default=_nan_to_none)}\n\n"
+                got = await loop.run_in_executor(None, data.quotes, missing)
+                if got:
+                    yield event(got)
             except Exception as e:  # noqa: BLE001
                 yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
-            await asyncio.sleep(config.STREAM_INTERVAL)
+        ticks = 0
+        while not await request.is_disconnected():
+            await asyncio.sleep(2)
+            ticks += 1
+            data.watch(syms)  # keep the hub refreshing these
+            qs = data.cached_quotes(syms)
+            payload = json.dumps(_clean(qs))
+            if qs and payload != sent:
+                sent = payload
+                yield event(qs)
+            elif ticks % 10 == 0:
+                yield ": keep-alive\n\n"
 
     headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
     return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)

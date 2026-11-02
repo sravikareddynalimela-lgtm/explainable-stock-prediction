@@ -38,7 +38,7 @@ def cached(key: str, ttl: float, fn: Callable[[], Any]) -> Any:
     return value
 
 
-_pool = ThreadPoolExecutor(max_workers=12)
+_pool = ThreadPoolExecutor(max_workers=16)
 
 
 class SymbolNotFound(Exception):
@@ -137,6 +137,49 @@ def _yahoo_quote(symbol: str) -> dict:
 
 
 _STATE = {"REGULAR": "OPEN", "PRE": "PRE", "PREPRE": "PRE", "POST": "POST", "POSTPOST": "POST", "CLOSED": "CLOSED"}
+
+
+def _yahoo_chart_quote(symbol: str) -> dict:
+    """Quote from the chart endpoint's metadata only: one small JSON request, no DataFrame.
+
+    Much lighter than downloading history, which matters on small cloud instances.
+    """
+    from urllib.parse import quote as urlquote
+
+    from yfinance.data import YfData
+
+    res = YfData().get_raw_json(
+        f"https://query2.finance.yahoo.com/v8/finance/chart/{urlquote(symbol)}",
+        params={"range": "1d", "interval": "1d"},
+        timeout=8,
+    )
+    result = ((res.get("chart") or {}).get("result") or [None])[0]
+    meta = (result or {}).get("meta") or {}
+    price = meta.get("regularMarketPrice")
+    if price is None:
+        raise SymbolNotFound(symbol)
+    prev = meta.get("previousClose") or meta.get("chartPreviousClose") or price
+    q = ((result.get("indicators") or {}).get("quote") or [{}])[0]
+    first = lambda k: next((v for v in (q.get(k) or []) if v is not None), None)  # noqa: E731
+    return {
+        "symbol": symbol.upper(),
+        "name": meta.get("longName") or meta.get("shortName") or symbol.upper(),
+        "exchange": meta.get("fullExchangeName") or meta.get("exchangeName") or "",
+        "currency": meta.get("currency") or "USD",
+        "price": float(price),
+        "previousClose": float(prev),
+        "change": float(price) - float(prev),
+        "changePct": (float(price) / float(prev) - 1) * 100 if prev else 0.0,
+        "open": float(first("open") or price),
+        "dayHigh": float(meta.get("regularMarketDayHigh") or price),
+        "dayLow": float(meta.get("regularMarketDayLow") or price),
+        "volume": int(meta.get("regularMarketVolume") or 0),
+        "fiftyTwoWeekHigh": meta.get("fiftyTwoWeekHigh"),
+        "fiftyTwoWeekLow": meta.get("fiftyTwoWeekLow"),
+        "marketState": _market_state(meta),
+        "time": int(meta.get("regularMarketTime") or time.time()),
+        "source": "yahoo",
+    }
 
 
 def _yahoo_quotes_batch(symbols: list[str]) -> list[dict]:
@@ -340,7 +383,7 @@ def quote(symbol: str) -> dict:
 _batch_off_until = 0.0  # circuit breaker for Yahoo's batch quote endpoint
 
 
-def quotes(symbols: list[str]) -> list[dict]:
+def quotes(symbols: list[str], max_age: float = 8) -> list[dict]:
     """Live quotes for many symbols.
 
     1. Yahoo's batch quote endpoint (one request). Cloud hosts are often refused
@@ -359,7 +402,7 @@ def quotes(symbols: list[str]) -> list[dict]:
     with _cache_lock:
         for s in symbols:
             hit = _cache.get(f"quote:{s}")
-            if hit and now - hit[0] < 8:
+            if hit and now - hit[0] < max_age:
                 fresh[s] = hit[1]
             else:
                 missing.append(s)
@@ -410,9 +453,21 @@ def _quote_from_cached_history(symbol: str) -> dict | None:
 
 
 def _per_symbol_quotes(symbols: list[str]) -> list[dict]:
+    def fetch(s):
+        if is_demo():
+            return _demo_quote(s)
+        try:
+            return _yahoo_chart_quote(s)
+        except Exception as e:  # noqa: BLE001
+            log.info("chart quote failed for %s (%s), trying history", s, e)
+            return _yahoo_quote(s)
+
     def safe(s):
         try:
-            return cached(f"quote:{s}", 8, lambda: _demo_quote(s) if is_demo() else _yahoo_quote(s))
+            q = fetch(s)
+            with _cache_lock:
+                _cache[f"quote:{s}"] = (time.time(), q)
+            return q
         except Exception as e:  # noqa: BLE001
             log.warning("quote failed for %s: %s", s, e)
             return None
@@ -432,3 +487,53 @@ def news(symbol: str) -> list[dict]:
     if is_demo():
         return []
     return cached(f"news:{symbol.upper()}", 600, lambda: _yahoo_news(symbol.upper()))
+
+
+# ---------------------------------------------------------------------------
+# Quote hub: one background thread keeps every symbol that any open dashboard
+# is watching fresh in the cache. Streams just read the cache, so a new browser
+# gets prices instantly and many users don't multiply requests to Yahoo.
+# ---------------------------------------------------------------------------
+_watched: dict[str, float] = {}
+_watch_lock = threading.Lock()
+_hub_started = False
+
+
+def watch(symbols: list[str]) -> None:
+    now = time.time()
+    with _watch_lock:
+        for s in symbols:
+            _watched[s.upper()] = now
+
+
+def cached_quotes(symbols: list[str], max_age: float = 300) -> list[dict]:
+    now = time.time()
+    out = []
+    with _cache_lock:
+        for s in symbols:
+            hit = _cache.get(f"quote:{s.upper()}")
+            if hit and now - hit[0] < max_age:
+                out.append(hit[1])
+    return out
+
+
+def _hub_loop() -> None:
+    while True:
+        t0 = time.time()
+        with _watch_lock:
+            for s in [s for s, t in _watched.items() if t0 - t > 90]:  # nobody looking anymore
+                del _watched[s]
+            syms = list(_watched)
+        if syms:
+            try:
+                quotes(syms, max_age=1)
+            except Exception as e:  # noqa: BLE001
+                log.warning("quote hub refresh failed: %s", e)
+        time.sleep(max(1.0, config.STREAM_INTERVAL - (time.time() - t0)))
+
+
+def start_hub() -> None:
+    global _hub_started
+    if not _hub_started:
+        _hub_started = True
+        threading.Thread(target=_hub_loop, daemon=True, name="quote-hub").start()

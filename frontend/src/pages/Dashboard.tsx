@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Moon, Sun } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { AgentGrid, Fusion } from '../components/Agents'
 import { Logo } from '../components/Logo'
@@ -14,6 +14,7 @@ import { UserMenu } from '../components/UserMenu'
 import { Watchlist } from '../components/Watchlist'
 import { Explain, FeatureImportance } from '../components/terminal/Explain'
 import { Empty, Panel, Skeleton } from '../components/terminal/Panel'
+import { NotYetPredicted, PredictCTA, PredictRunning, RerunButton } from '../components/terminal/Predict'
 import { PredictionResult } from '../components/terminal/PredictionResult'
 import { RecentData } from '../components/terminal/RecentData'
 import { ApiError, api, type Quote } from '../lib/api'
@@ -43,6 +44,7 @@ function Terminal() {
   const symbol = (params.get('s') ?? 'RELIANCE.NS').toUpperCase()
   const watch = useWatchlist()
   const active = useActiveSection()
+  const predictRef = useRef<() => void>(() => {})
 
   const setSymbol = useCallback((s: string) => {
     setParams({ s })
@@ -54,6 +56,7 @@ function Terminal() {
     const onKey = (e: KeyboardEvent) => {
       const el = document.activeElement
       if (e.metaKey || e.ctrlKey || e.altKey || el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA') return
+      if (e.key === 'p' || e.key === 'P') return predictRef.current()
       const s = SECTIONS.find((x) => x.key === e.key)
       if (s) document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }
@@ -67,22 +70,37 @@ function Terminal() {
     queryFn: api.health,
     refetchInterval: (q) => (q.state.data?.model.state === 'training' ? 3000 : 60_000),
   })
+  // Predictions only run when the user clicks Predict (or presses P). Opening another stock resets it.
+  const [runFor, setRunFor] = useState<string | null>(null)
+  const predicted = runFor === symbol
+  useEffect(() => { setRunFor(null) }, [symbol])
   const analysis = useQuery({
     queryKey: ['analysis', symbol, health?.trainedAt],
     queryFn: () => api.analysis(symbol),
-    refetchInterval: 5 * 60_000,
-    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2,
+    enabled: predicted,
+    staleTime: Infinity,
+    gcTime: 0,
+    retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 1,
   })
+  const predict = useCallback(() => {
+    if (runFor === symbol) analysis.refetch()
+    else setRunFor(symbol)
+    document.getElementById('overview')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [runFor, symbol, analysis])
 
   useEffect(() => { document.title = `${symbol.replace('.NS', '')} | Clearview` }, [symbol])
+
+  predictRef.current = predict
 
   const q = quotes[symbol]
   const inList = watch.symbols.includes(symbol)
   const indexQuotes = INDEX_SYMBOLS.map((s) => quotes[s]).filter((x): x is Quote => Boolean(x))
   const a = analysis.data
 
-  const body = (render: () => React.ReactNode, rows = 4) =>
-    analysis.isLoading ? <Skeleton rows={rows} />
+  const fetching = analysis.isFetching
+  const body = (render: () => React.ReactNode, rows = 4, what = 'This section') =>
+    !predicted ? <NotYetPredicted what={what} onPredict={predict} />
+      : analysis.isLoading ? <Skeleton rows={rows} />
       : analysis.error ? <Empty><b className="text-down">Couldn’t analyse {symbol}.</b> {(analysis.error as Error).message}. Indian stocks end in .NS (e.g. INFY.NS).</Empty>
       : a ? render() : null
 
@@ -136,37 +154,41 @@ function Terminal() {
               <QuoteHeader q={q} symbol={symbol} inList={inList} onToggleList={() => (inList ? watch.remove(symbol) : watch.add(symbol))} />
               <div className="h-[440px] border-t border-line 2xl:h-[500px]"><PriceChart symbol={symbol} quote={q} /></div>
             </section>
-            <Panel fkey="1" title="Prediction result" meta={a && <span className="num">as of {a.asOf}</span>}>
-              {body(() => <PredictionResult a={a!} />, 8)}
+            <Panel fkey="1" title="Prediction result" className="flex flex-col" bodyClass="flex-1"
+              meta={predicted && a ? <RerunButton onClick={predict} busy={fetching} at={analysis.dataUpdatedAt || null} /> : null}>
+              {!predicted ? <PredictCTA symbol={symbol} onPredict={predict} training={health?.model.state === 'training'} />
+                : analysis.isLoading ? <PredictRunning symbol={symbol} />
+                : analysis.error ? <Empty><b className="text-down">Couldn’t predict {symbol}.</b> {(analysis.error as Error).message}. <button onClick={predict} className="text-brand underline">Try again</button></Empty>
+                : a ? <PredictionResult a={a} /> : null}
             </Panel>
           </div>
 
           {/* 2 agents */}
-          <Panel id="agents" fkey="2" title="Multi-agent analysis" meta={a && <span>{a.fusion.agreement} directional agents agree</span>}>
-            {body(() => <AgentGrid agents={a!.agents} />, 6)}
+          <Panel id="agents" fkey="2" title="Multi-agent analysis" meta={predicted && a && <span>{a.fusion.agreement} directional agents agree</span>}>
+            {body(() => <AgentGrid agents={a!.agents} />, 6, 'The agents’ analysis')}
           </Panel>
           <Panel title="Agent fusion" meta={<span>majority vote and weighted score</span>}>
-            {body(() => <Fusion a={a!} />, 3)}
+            {body(() => <Fusion a={a!} />, 3, 'Agent fusion')}
           </Panel>
 
           {/* 3 explain */}
           <Panel id="explain" fkey="3" title="Why did the model make this prediction?" meta={<span className="text-why">SHAP</span>}>
-            {body(() => <Explain a={a!} />, 8)}
+            {body(() => <Explain a={a!} />, 8, 'The explanation')}
           </Panel>
 
           {/* 4 model */}
           <div id="model" className="grid scroll-mt-28 gap-1.5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <Panel fkey="4" title="Feature importance" meta={<span>all stocks</span>}>
-              {body(() => <FeatureImportance items={a!.featureImportance} />, 8)}
+              {body(() => <FeatureImportance items={a!.featureImportance} />, 8, 'Feature importance')}
             </Panel>
             <Panel title="Backtest" meta={<span>walk-forward, out of sample</span>}>
-              {body(() => (a!.prediction ? <TrackRecord a={a!} /> : <Empty>Backtest results appear once the model finishes training.</Empty>), 6)}
+              {body(() => (a!.prediction ? <TrackRecord a={a!} /> : <Empty>Backtest results appear once the model finishes training.</Empty>), 6, 'The backtest')}
             </Panel>
           </div>
 
           {/* 5 data */}
           <Panel id="data" fkey="5" title="Recent stock data" meta={<span>daily, newest first</span>}>
-            {body(() => <RecentData rows={a!.recent} />, 6)}
+            {body(() => <RecentData rows={a!.recent} />, 6, 'Recent stock data')}
           </Panel>
 
           {/* 6 news */}
@@ -175,7 +197,7 @@ function Terminal() {
           </Panel>
 
           <p className="px-1 py-3 text-[11px] leading-relaxed text-fg-3">
-            Educational project. Predictions are uncertain and are not financial advice. Quotes from Yahoo Finance; some exchanges are delayed up to 15 minutes. Press 1–6 to jump between sections.
+            Educational project. Predictions are uncertain and are not financial advice. Quotes from Yahoo Finance; some exchanges are delayed up to 15 minutes. Press P to predict and 1–6 to jump between sections.
           </p>
         </main>
       </div>
