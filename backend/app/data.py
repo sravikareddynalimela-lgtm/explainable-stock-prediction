@@ -337,40 +337,82 @@ def quote(symbol: str) -> dict:
     return got[0]
 
 
+_batch_off_until = 0.0  # circuit breaker for Yahoo's batch quote endpoint
+
+
 def quotes(symbols: list[str]) -> list[dict]:
+    """Live quotes for many symbols.
+
+    1. Yahoo's batch quote endpoint (one request). Cloud hosts are often refused
+       here (it needs a cookie + crumb), so after a failure it's skipped for 10 minutes.
+    2. Otherwise each symbol comes from Yahoo's chart endpoint, the same one that
+       powers the price chart, which works from cloud hosts.
+    3. If that fails too, the latest bar of already-downloaded daily history is used.
+    """
+    global _batch_off_until
     symbols = list(dict.fromkeys(s.upper() for s in symbols))
-    if not is_demo():
-        # serve fresh cached quotes, fetch the rest in one batched request
-        now = time.time()
-        fresh, missing = {}, []
-        with _cache_lock:
-            for s in symbols:
-                hit = _cache.get(f"quote:{s}")
-                if hit and now - hit[0] < 4:
-                    fresh[s] = hit[1]
-                else:
-                    missing.append(s)
-        if missing:
-            try:
-                got = _yahoo_quotes_batch(missing)
-                with _cache_lock:
-                    for q in got:
-                        _cache[f"quote:{q['symbol']}"] = (now, q)
-                        fresh[q["symbol"]] = q
-            except Exception as e:  # noqa: BLE001
-                log.warning("batch quote failed (%s), falling back to per-symbol", e)
-        still = [s for s in symbols if s not in fresh]
-        if still:
-            for q in _per_symbol_quotes(still[:8]):  # cap the slow path
-                fresh[q["symbol"]] = q
-        return [fresh[s] for s in symbols if s in fresh]
-    return _per_symbol_quotes(symbols)
+    if is_demo():
+        return _per_symbol_quotes(symbols)
+
+    now = time.time()
+    fresh, missing = {}, []
+    with _cache_lock:
+        for s in symbols:
+            hit = _cache.get(f"quote:{s}")
+            if hit and now - hit[0] < 8:
+                fresh[s] = hit[1]
+            else:
+                missing.append(s)
+
+    if missing and now >= _batch_off_until:
+        try:
+            got = _yahoo_quotes_batch(missing)
+            if not got:
+                raise RuntimeError("empty response")
+            with _cache_lock:
+                for q in got:
+                    _cache[f"quote:{q['symbol']}"] = (now, q)
+                    fresh[q["symbol"]] = q
+        except Exception as e:  # noqa: BLE001
+            _batch_off_until = now + 600
+            log.warning("batch quote endpoint failed (%s); using chart endpoint for 10 min", e)
+
+    still = [s for s in symbols if s not in fresh]
+    if still:
+        for q in _per_symbol_quotes(still):
+            fresh[q["symbol"]] = q
+    for s in [s for s in symbols if s not in fresh]:
+        q = _quote_from_cached_history(s)
+        if q:
+            fresh[s] = q
+    return [fresh[s] for s in symbols if s in fresh]
+
+
+def _quote_from_cached_history(symbol: str) -> dict | None:
+    """Last resort: build a quote from daily history we already downloaded."""
+    with _cache_lock:
+        hits = [v for k, v in _cache.items() if k.startswith(f"hist:{symbol}:") and k.endswith(":1d")]
+    if not hits:
+        return None
+    df = max(hits, key=lambda h: h[0])[1]
+    if df is None or len(df) < 2:
+        return None
+    last, prev = df.iloc[-1], float(df["Close"].iloc[-2])
+    price = float(last["Close"])
+    return {
+        "symbol": symbol, "name": symbol, "exchange": "", "currency": "INR" if symbol.endswith((".NS", ".BO")) else "USD",
+        "price": price, "previousClose": prev, "change": price - prev, "changePct": (price / prev - 1) * 100,
+        "open": float(last["Open"]), "dayHigh": float(last["High"]), "dayLow": float(last["Low"]),
+        "volume": int(last["Volume"] or 0), "fiftyTwoWeekHigh": float(df["High"].iloc[-252:].max()),
+        "fiftyTwoWeekLow": float(df["Low"].iloc[-252:].min()), "marketState": "UNKNOWN",
+        "time": int(time.time()), "source": "history",
+    }
 
 
 def _per_symbol_quotes(symbols: list[str]) -> list[dict]:
     def safe(s):
         try:
-            return cached(f"quote:{s}", 4, lambda: _demo_quote(s) if is_demo() else _yahoo_quote(s))
+            return cached(f"quote:{s}", 8, lambda: _demo_quote(s) if is_demo() else _yahoo_quote(s))
         except Exception as e:  # noqa: BLE001
             log.warning("quote failed for %s: %s", s, e)
             return None

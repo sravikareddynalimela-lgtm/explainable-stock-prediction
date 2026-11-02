@@ -1,4 +1,4 @@
-import { Star } from 'lucide-react'
+import { Check, Plus } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { Quote } from '../lib/api'
 import { compact, money } from '../lib/format'
@@ -33,9 +33,24 @@ export function QuoteHeader({ q, symbol, inList, onToggleList }: { q?: Quote; sy
           <h1 className="num text-base font-bold">{symbol}</h1>
           <span className="max-w-[16rem] truncate text-sm text-fg-2">{q?.name ?? ''}</span>
           {q?.exchange && <span className="rounded-sm border border-line-2 px-1 text-[10px] font-semibold text-fg-3">{q.exchange}</span>}
-          <button onClick={onToggleList} aria-pressed={inList} aria-label={inList ? 'Remove from watchlist' : 'Add to watchlist'}
-            className={`rounded-sm p-0.5 ${inList ? 'text-brand' : 'text-fg-3 hover:text-fg'}`}>
-            <Star className="h-4 w-4" fill={inList ? 'currentColor' : 'none'} />
+          <button onClick={onToggleList} aria-pressed={inList}
+            title={inList ? 'Click to remove from your watchlist' : 'Add to your watchlist'}
+            className={`group ml-1 flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-semibold transition-colors ${
+              inList
+                ? 'border-line-2 text-fg-2 hover:border-down/60 hover:text-down'
+                : 'border-brand bg-brand text-on-brand hover:opacity-90'
+            }`}>
+            {inList ? (
+              <>
+                <Check className="h-3.5 w-3.5 group-hover:hidden" aria-hidden />
+                <span className="group-hover:hidden">In watchlist</span>
+                <span className="hidden group-hover:inline">Remove</span>
+              </>
+            ) : (
+              <>
+                <Plus className="h-3.5 w-3.5" aria-hidden /> Add to watchlist
+              </>
+            )}
           </button>
         </div>
         {q ? (
